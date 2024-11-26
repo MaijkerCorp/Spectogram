@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><title>Real-Time Spectrogram</title>
+    <link rel="stylesheet" href="./css/spectogram.css">
+  </head>
+  <body>
+    <h1>Real-Time Spectrogram</h1>
+    <div class="controls">
+        <div class="control-group">
+            <label for="fftSize">FFT Size:</label>
+            <input id="fftSize" type="range" min="128" max="8192" value="1024" step="128">
+            <span id="fftSizeDisplay">1024</span>
+        </div>
+        <div class="control-group">
+            <label for="segmentDuration">Segment Duration (ms):</label>
+            <input id="segmentDuration" type="range" min="10" max="200" value="40" step="10">
+            <span id="segmentDurationDisplay">40</span>
+        </div>
+        <div class="control-group">
+            <label for="minFrequency">Min Frequency (Hz):</label>
+            <input id="minFrequency" type="number" min="0" max="22050" value="20">
+            <span id="minFrequencyDisplay">20</span>
+        </div>
+        <div class="control-group">
+            <label for="maxFrequency">Max Frequency (Hz):</label>
+            <input id="maxFrequency" type="number" min="0" max="22050" value="8000">
+            <span id="maxFrequencyDisplay">8000</span>
+        </div>
+        <button id="startButton">Start Spectrogram</button>
+        <button id="stopButton">Stop Spectrogram</button>
+    </div>
+    <canvas></canvas>
+    
+    <script src="./js/spectogram.js"></script>
+    <script>
+  </script>
+  </body>
+</html>
