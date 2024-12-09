@@ -21,10 +21,38 @@ let isPaused = false;
 let isDragging = false;
 let fetchAudioInterval = null;
 
-
+let realTimeCounterInterval = null; // Interval for updating the real-time counter
+let playbackStartTime = 0;
+let totalElapsedTime = 0;
 
 spectrogramCanvas.width = window.innerWidth;
 spectrogramCanvas.height = window.innerHeight / 2;
+
+const updateTimeCounters = () => {
+    const bufferDurationElement = document.getElementById("bufferDuration");
+    const currentTimeElement = document.getElementById("currentTime");
+
+    // Calculate total duration in buffer
+    const totalSecondsInBuffer = (spectogramQueue.length * chunkDuration) / 1000;
+
+    // Calculate current playback time
+    const currentTime = (currentX * chunkDuration) / 1000;
+
+    bufferDurationElement.textContent = `Buffer: ${totalSecondsInBuffer.toFixed(1)}s`;
+    currentTimeElement.textContent = `Current Time: ${currentTime.toFixed(1)}s`;
+};
+
+const startRealTimeCounter = () => {
+    if (realTimeCounterInterval) {
+        clearInterval(realTimeCounterInterval);
+    }
+
+    realTimeCounterInterval = setInterval(() => {
+        const elapsedRealTime = totalElapsedTime + (audioContext.currentTime - playbackStartTime); 
+        const realTimeElement = document.getElementById("realTime");
+        realTimeElement.textContent = `Real-Time Playback: ${elapsedRealTime.toFixed(1)}s`;
+    }, 100);
+};
 
 function addToAudioQueue(audioChunk, duration) {
     const sampleRate = audioChunk.sampleRate; 
@@ -66,22 +94,32 @@ function playChunk(audioBuffer, offset) {
     source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    source.start(audioContext.currentTime + offset); // Schedule playback
+    source.start(audioContext.currentTime + offset); 
 }
 
 const pauseSpectrogram = () => {
     isPaused = true;
+    updateTimeCounters();
 
     if (currentAnimationFrame) {
         cancelAnimationFrame(currentAnimationFrame);
         currentAnimationFrame = null;
     }
+
+    if (realTimeCounterInterval) {
+        clearInterval(realTimeCounterInterval);
+        realTimeCounterInterval = null;
+    }
+
+    totalElapsedTime += audioContext.currentTime - playbackStartTime;
 };
 
 const resumeSpectrogram = () => {
     isPaused = false;
+    updateTimeCounters();
 
     if (source) {
+        startRealTimeCounter();
         visualizeSpectrogramChunk(source.buffer); 
     }
 };
@@ -94,13 +132,18 @@ const startSpectrogram = () => {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
 
+  fetchAndProcessAudio();
+
   if (!fetchAudioInterval) {
     fetchAudioInterval = setInterval(() => {
-        if (!isPaused) { // Only fetch if not paused
+        if (!isPaused) { 
             fetchAndProcessAudio();
         }
     }, 10000); // Fetch every 10 seconds
-}
+  }
+
+  playbackStartTime = audioContext.currentTime;
+  startRealTimeCounter();
 };
 
 const stopSpectrogram = () => {
@@ -122,6 +165,11 @@ const stopSpectrogram = () => {
         clearInterval(fetchAudioInterval);
         fetchAudioInterval = null;
     }
+
+    if (realTimeCounterInterval) {
+        clearInterval(realTimeCounterInterval);
+        realTimeCounterInterval = null;
+    }
 };
 
 const fetchAndProcessAudio = async () => {
@@ -136,8 +184,8 @@ const fetchAndProcessAudio = async () => {
       const decodedAudio = await audioContext.decodeAudioData(audioBuffer);
 
       if (cancelVisualization) {
-        cancelVisualization(); // Call the cancellation callback to stop the old visualization
-        cancelVisualization = null; // Clear the cancellation reference
+        cancelVisualization(); 
+        cancelVisualization = null; 
       }
       addToAudioQueue(decodedAudio, 10000);
       
@@ -168,6 +216,10 @@ const visualizeSpectrogramChunk = (audio) => {
     analyser.connect(audioContext.destination);
     source.start();
 
+    if (!isPaused) {
+        playbackStartTime = audioContext.currentTime; // Reset start time only when playback resumes
+    }
+
     const draw = () => {
         if (!isSpectrogramRunning) return;
 
@@ -181,6 +233,7 @@ const visualizeSpectrogramChunk = (audio) => {
         currentX++;
         maxX++;
         updateProgressBar(); 
+        updateTimeCounters();
         currentAnimationFrame = requestAnimationFrame(draw);
     };
     draw();
@@ -270,6 +323,7 @@ const renderClipFromQueue = (offset) => {
 
     currentX = newIndex;
     updateProgressBar(); 
+    updateTimeCounters();
 };
 
 
