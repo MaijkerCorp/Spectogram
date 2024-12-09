@@ -23,3 +23,16 @@ canvas {
 .control-group label {
     margin-right: 10px;
 }
+#progressBarContainer {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    background-color: #ccc;
+    margin-top: 10px;
+}
+
+#progressBar {
+    height: 100%;
+    background-color: #007bff;
+    transition: width 0.2s;
+}

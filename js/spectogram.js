@@ -12,20 +12,19 @@ let maxQueueDuration = 600000; // 10 minutes in ms
 let spectogramQueue = [];
 const spectrogramCanvas = document.getElementById("spectrogramCanvas");
 const spectrogramContext = spectrogramCanvas.getContext("2d");
-const outputCanvas = document.getElementById("outputCanvas");
-const outputContext = outputCanvas.getContext("2d");
-const seekBar = document.getElementById("seekBar");
 let cancelVisualization = null
 let currentAnimationFrame = null;
 let currentX = 0;
+let maxX = 0;
+let dragOffset = 0;
+let isPaused = false;
+let isDragging = false;
+let fetchAudioInterval = null;
+
+
 
 spectrogramCanvas.width = window.innerWidth;
 spectrogramCanvas.height = window.innerHeight / 2;
-
-let videoStream = null;
-let recorder = null;
-let videoChunks = [];
-let isRecording = false;
 
 function addToAudioQueue(audioChunk, duration) {
     const sampleRate = audioChunk.sampleRate; 
@@ -70,6 +69,23 @@ function playChunk(audioBuffer, offset) {
     source.start(audioContext.currentTime + offset); // Schedule playback
 }
 
+const pauseSpectrogram = () => {
+    isPaused = true;
+
+    if (currentAnimationFrame) {
+        cancelAnimationFrame(currentAnimationFrame);
+        currentAnimationFrame = null;
+    }
+};
+
+const resumeSpectrogram = () => {
+    isPaused = false;
+
+    if (source) {
+        visualizeSpectrogramChunk(source.buffer); 
+    }
+};
+
 const startSpectrogram = () => {
   if (isSpectrogramRunning) return;
   isSpectrogramRunning = true;
@@ -78,23 +94,34 @@ const startSpectrogram = () => {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  fetchAndProcessAudio();
-  setInterval(fetchAndProcessAudio, 10000);
+  if (!fetchAudioInterval) {
+    fetchAudioInterval = setInterval(() => {
+        if (!isPaused) { // Only fetch if not paused
+            fetchAndProcessAudio();
+        }
+    }, 10000); // Fetch every 10 seconds
+}
 };
 
 const stopSpectrogram = () => {
-  isSpectrogramRunning = false;
-  if (animationFrameId) {
-    cancelAnimationFrame(animationFrameId);
-    animationFrameId = null;
-  }
+    isSpectrogramRunning = false;
 
-  if (source) {
-    source.disconnect();
-    source = null;
-  }
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
 
-  spectrogramContext.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
+    if (source) {
+        source.disconnect();
+        source = null;
+    }
+
+    spectrogramContext.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
+
+    if (fetchAudioInterval) {
+        clearInterval(fetchAudioInterval);
+        fetchAudioInterval = null;
+    }
 };
 
 const fetchAndProcessAudio = async () => {
@@ -126,22 +153,11 @@ const fetchAndProcessAudio = async () => {
 };
 
 const visualizeSpectrogramChunk = (audio) => {
-
     if (currentAnimationFrame) {
         cancelAnimationFrame(currentAnimationFrame);
         currentAnimationFrame = null;
     }
 
-    let isCancelled = false;
-    cancelVisualization = () => {
-        isCancelled = true; 
-        if (source) {
-            source.stop(); 
-            source.disconnect(); 
-            source = null;
-        }
-    };
-
     source = audioContext.createBufferSource();
     source.buffer = audio;
 
@@ -151,121 +167,174 @@ const visualizeSpectrogramChunk = (audio) => {
     source.connect(analyser);
     analyser.connect(audioContext.destination);
     source.start();
-    
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const sampleRate = audioContext.sampleRate;
-    const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
-    const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
 
     const draw = () => {
         if (!isSpectrogramRunning) return;
 
+        const data = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(data);
-        // Shift the canvas to the left
-        const imageData = spectrogramContext.getImageData(1, 0, spectrogramCanvas.width - 1, spectrogramCanvas.height);
-        spectrogramContext.putImageData(imageData, 0, 0);
-
-        // Draw the new frequency data on the right
-        for (let i = minIndex; i < maxIndex; i++) {
-            const value = data[i] / 255;
-            const hue = Math.round((value * 120) + 280) % 360;
-            const saturation = '100%';
-            const lightness = 10 + (70 * value) + '%';
-            spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
-
-            const y = spectrogramCanvas.height - ((i - minIndex) / (maxIndex - minIndex)) * spectrogramCanvas.height;
-            spectrogramContext.fillRect(spectrogramCanvas.width - 1, y, 1, 1);
+        spectogramQueue.push(data);
+        if (spectogramQueue.length > maxQueueDuration) {
+            spectogramQueue.shift(); 
         }
-
+        shiftLeft(data);
         currentX++;
-
-        if (currentX >= spectrogramCanvas.width) {
-            const imageData = spectrogramContext.getImageData(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
-            spectogramQueue.push(imageData);
-            updateSeekBar(); 
-            console.log(spectogramQueue);
-            currentX = 0; 
-        }
-
+        maxX++;
+        updateProgressBar(); 
         currentAnimationFrame = requestAnimationFrame(draw);
     };
-    console.log("width: " + spectrogramCanvas.width);
     draw();
-
 };
 
-const visualizeSpectrogram = (audio) => {
 
-    source = audioContext.createBufferSource();
-    source.buffer = audio;
+const shiftLeft = (data) => {
+    // console.log(data);
+    // Shift the canvas to the left
+    const imageData = spectrogramContext.getImageData(1, 0, spectrogramCanvas.width - 1, spectrogramCanvas.height);
+    spectrogramContext.putImageData(imageData, 0, 0);
 
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = fftSize;
-
-    source.connect(analyser);
-    analyser.connect(audioContext.destination);
-    source.start();
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
+    // Draw new frequency data on the right
     const sampleRate = audioContext.sampleRate;
     const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
     const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
-    console.log("minIndex: " + minIndex)
-    console.log("maxindex: " + maxIndex)
-    const draw = () => {
-        if (!isSpectrogramRunning) return;
+    const renderX = spectrogramCanvas.width - 1;
 
-        analyser.getByteFrequencyData(data);
-        // Shift the canvas to the left
-        const imageData = canvasContext.getImageData(1, 0, canvas.width - 1, canvas.height);
-        canvasContext.putImageData(imageData, 0, 0);
+    for (let i = minIndex; i < maxIndex; i++) {
+        const value = data[i] / 255;
+        const hue = Math.round((value * 120) + 280) % 360;
+        const saturation = "100%";
+        const lightness = `${10 + 70 * value}%`;
+        spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
 
-        // Draw the new frequency data on the right
-        for (let i = minIndex; i < maxIndex; i++) {
-            const value = data[i] / 255;
-            const hue = Math.round((value * 120) + 280) % 360;
-            const saturation = '100%';
-            const lightness = 10 + (70 * value) + '%';
-            canvasContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
+        const y =
+            spectrogramCanvas.height -
+            ((i - minIndex) / (maxIndex - minIndex)) * spectrogramCanvas.height;
+        spectrogramContext.fillRect(renderX, y, 1, 1);
+    }
+};
 
-            const y = canvas.height - ((i - minIndex) / (maxIndex - minIndex)) * canvas.height;
-            canvasContext.fillRect(canvas.width - 1, y, 1, 1);
-        }
+const shiftRight = (data) => {
+    // Shift the canvas to the right
+    const imageData = spectrogramContext.getImageData(0, 0, spectrogramCanvas.width - 1, spectrogramCanvas.height);
+    spectrogramContext.putImageData(imageData, 1, 0);
 
-        animationFrameId = requestAnimationFrame(draw);
-    };
+    // Draw new frequency data on the left
+    const sampleRate = audioContext.sampleRate;
+    const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
+    const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
+    const renderX = 0;
 
-    draw();
+    for (let i = minIndex; i < maxIndex; i++) {
+        const value = data[i] / 255;
+        const hue = Math.round((value * 120) + 280) % 360;
+        const saturation = "100%";
+        const lightness = `${10 + 70 * value}%`;
+        spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
+
+        const y =
+            spectrogramCanvas.height -
+            ((i - minIndex) / (maxIndex - minIndex)) * spectrogramCanvas.height;
+        spectrogramContext.fillRect(renderX, y, 1, 1);
+    }
 };
 
 
-// Event listeners for the start and stop buttons
+const renderClipFromQueue = (offset) => {
+    const newIndex = currentX - offset;
+
+    if (newIndex - spectrogramCanvas.width < 0 || newIndex >= spectogramQueue.length) {
+        return;
+    }
+    
+    if (offset > 0) {
+        for(let i = currentX - 1; i >= newIndex; i--) {
+            const data = spectogramQueue[i - spectrogramCanvas.width];
+    
+            if (!data || !(data instanceof Uint8Array)) {
+                console.error("Invalid data at index:", newIndex);
+                return;
+            }
+            shiftRight(data);
+        }
+    } else if(offset < 0) {
+        for(let i = currentX + 1; i <= newIndex; i++) {
+            const data = spectogramQueue[newIndex];
+    
+            if (!data || !(data instanceof Uint8Array)) {
+                console.error("Invalid data at index:", newIndex);
+                return;
+            }
+            shiftLeft(data);
+        }
+    }
+
+    currentX = newIndex;
+    updateProgressBar(); 
+};
+
+
+
+const handleCanvasMouseDown = (event) => {
+    console.log("clicked");
+    if (isPaused) {
+        isDragging = true;
+        dragStartX = event.clientX;
+        spectrogramCanvas.style.cursor = "grabbing"; 
+    }
+};
+
+const handleCanvasMouseMove = (event) => {
+    if (isDragging && isPaused) {
+        const deltaX = event.clientX - dragStartX;
+
+        const offset = Math.round(deltaX / 1); 
+
+        renderClipFromQueue(offset);
+        dragStartX = event.clientX; 
+    }
+};
+
+
+const handleCanvasMouseUp = () => {
+    console.log("released");
+    if (isDragging) {
+        isDragging = false;
+        spectrogramCanvas.style.cursor = "default"; 
+    }
+};
+  const attachCanvasDragging = () => {
+    spectrogramCanvas.addEventListener("mousedown", handleCanvasMouseDown);
+    spectrogramCanvas.addEventListener("mousemove", handleCanvasMouseMove);
+    spectrogramCanvas.addEventListener("mouseup", handleCanvasMouseUp);
+    spectrogramCanvas.addEventListener("mouseleave", handleCanvasMouseUp);
+  };
+
+const updateProgressBar = () => {
+    const progressBar = document.getElementById("progressBar");
+    let percentage = 0;
+    if(maxX > spectrogramCanvas.width) {
+        percentage = ((currentX - spectrogramCanvas.width) / (maxX - spectrogramCanvas.width)) * 100;
+    } else {
+        percentage = 100;
+    }
+
+    progressBar.style.width = `${percentage}%`;
+};
+
+// Call this function wherever `currentX` or `spectogramQueue` changes
+
+  
+  attachCanvasDragging();
+
+document.getElementById("pauseButton").addEventListener("click", pauseSpectrogram);
+document.getElementById("resumeButton").addEventListener("click", resumeSpectrogram);
+
 document.getElementById("startButton").addEventListener("click", startSpectrogram);
 document.getElementById("stopButton").addEventListener("click", stopSpectrogram);
 
-// Resize canvas to fit the screen
 window.addEventListener("resize", () => {
   spectrogramCanvas.width = window.innerWidth;
-  spectrogramCanvas.height = window.innerHeight / 2; 
-  outputCanvas.width = window.innerWidth;
-  outputCanvas.height = window.innerHeight / 2;
-});
-
-function updateSeekBar() {
-    seekBar.max = spectogramQueue.length - 1;
-    seekBar.value = spectogramQueue.length - 1;
-}
-
-function drawFrame(frameIndex) {
-    if (frameIndex >= 0 && frameIndex < spectogramQueue.length) {
-        const frame = spectogramQueue[frameIndex];
-        outputContext.putImageData(frame, 0, 0); // Display the frame on the output canvas
-    }
-}
-
-seekBar.addEventListener("input", (event) => {
-    const frameIndex = parseInt(event.target.value, 10); // Get the current frame index
-    drawFrame(frameIndex); // Draw the selected frame
+  spectrogramCanvas.height = window.innerHeight / 2;
 });
 
 window.dispatchEvent(new Event("resize"));

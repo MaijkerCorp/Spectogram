@@ -6,7 +6,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # Replace with the path to your folder containing WAV files
-folder_path = r"C:/Maijker Projects/Maijker-Data-Architecture/Maijker.MakeSense.Middleware/bin/Debug/net6.0/24_58_7C_C4_8A_5C/2024-12-05"
+folder_path = r"C:/Maijker Projects/Maijker-Data-Architecture/Maijker.MakeSense.Middleware/bin/Debug/net6.0/24_58_7C_C4_8A_5C/2024-12-06"
 
 # Function to fetch the newest WAV file
 def get_newest_wav_file():
