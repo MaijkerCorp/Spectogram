@@ -5,22 +5,24 @@
     <link rel="stylesheet" href="./css/spectogram.css">
   </head>
   <body>
-    <h1>Real-Time Spectrogram</h1>
+    <h1>10 second old Spectrogram</h1>
     <div class="controls">
         <button id="startButton">Start Spectrogram</button>
         <button id="stopButton">Stop Spectrogram</button>
         <button id="pauseButton">Pause</button>
         <button id="resumeButton">Resume</button>
     </div>
-    <canvas id="spectrogramCanvas"></canvas>
-    <div id="progressBarContainer" style="position: relative; width: 100%; height: 10px; background-color: #ccc;">
-      <div id="progressBar" style="width: 0; height: 100%; background-color: #007bff;"></div>
+    <div style="display: flex; flex-direction: column; align-items: center;">
+        <canvas id="spectrogramCanvas"></canvas>
+        <div id="progressBarContainer">
+            <div id="progressBar"></div>
+        </div>
     </div>
-    <div>
-      <span id="realTime">Real-Time Playback: 0.0s</span>
-      <span id="bufferDuration">Buffer Duration: 0s</span>
-      <span id="currentTime"> | Current Time: 0s</span>
-    </div>    
+    <div class="stats">
+        <span id="realTime">Real-Time Playback: 0.0s</span>
+        <span id="bufferDuration">Buffer Duration: 0s</span>
+        <span id="currentTime"> | Current Time: 0s</span>
+    </div>     
     
     <script src="./js/spectogram.js"></script>
     <script>
