@@ -7,6 +7,7 @@ const minFrequency = 100;
 const maxFrequency = 10000;
 let source = null;
 let chunkQueue = [];
+let buffered = 0;
 let chunkDuration = 40;
 let maxQueueDuration = 600000; // 10 minutes in ms
 let spectogramQueue = [];
@@ -22,12 +23,14 @@ let isPaused = false;
 let isDragging = false;
 let isRendering = false;
 let fetchAudioInterval = null;
+let currentlyPlaying = 0;
+let list = [];
 
 let realTimeCounterInterval = null; 
 let playbackStartTime = 0;
 let totalElapsedTime = 0;
 
-spectrogramCanvas.width = window.innerWidth;
+spectrogramCanvas.width = Math.floor(window.innerWidth / 4) * 4;
 progressBar.width = spectrogramCanvas.width
 spectrogramCanvas.height = window.innerHeight / 2;
 
@@ -39,7 +42,7 @@ const updateTimeCounters = () => {
     const totalSecondsInBuffer = (spectogramQueue.length * chunkDuration) / 1000;
 
     // Calculate current playback time
-    const currentTime = (currentX * chunkDuration) / 1000;
+    const currentTime = (currentX * chunkDuration)/ 4 / 1000;
 
     bufferDurationElement.textContent = `Buffer: ${totalSecondsInBuffer.toFixed(1)}s`;
     currentTimeElement.textContent = `Current Time: ${currentTime.toFixed(1)}s`;
@@ -87,11 +90,9 @@ function addToAudioQueue(audioChunk, duration) {
         // playChunk(chunkBuffer, playOffset);
         // playOffset += chunkBuffer.duration;
         // playOffset += 1;
-
         chunkQueue.push(chunk);
     }
 }
-
 
 function playChunk(audioBuffer, offset) {
     source = audioContext.createBufferSource();
@@ -128,7 +129,7 @@ const resumeSpectrogram = () => {
     }
 };
 
-const startSpectrogram = () => {
+const startSpectrogram = async () => {
   if (isSpectrogramRunning) return;
   isSpectrogramRunning = true;
 
@@ -136,7 +137,7 @@ const startSpectrogram = () => {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  fetchAndProcessAudio();
+  await fetchAndProcessAudio();
 
   if (!fetchAudioInterval) {
     fetchAudioInterval = setInterval(() => {
@@ -145,9 +146,10 @@ const startSpectrogram = () => {
         }
     }, 10000); // Fetch every 10 seconds
   }
-
+  
   playbackStartTime = audioContext.currentTime;
   startRealTimeCounter();
+  visualizeSpectrogramChunk(chunkQueue[currentlyPlaying].audioChunk);
 };
 
 const stopSpectrogram = () => {
@@ -194,7 +196,6 @@ const fetchAndProcessAudio = async () => {
       addToAudioQueue(decodedAudio, 10000);
       
       //   playChunk(chunkQueue[12].audioChunk, 0);
-      visualizeSpectrogramChunk(decodedAudio);
     
     } else {
       console.error("Failed to fetch WAV file metadata.");
@@ -205,6 +206,7 @@ const fetchAndProcessAudio = async () => {
 };
 
 const visualizeSpectrogramChunk = (audio) => {
+    if(audio == null || isPaused) return
     if (currentAnimationFrame) {
         cancelAnimationFrame(currentAnimationFrame);
         currentAnimationFrame = null;
@@ -220,19 +222,31 @@ const visualizeSpectrogramChunk = (audio) => {
     analyser.connect(audioContext.destination);
     source.start();
 
-    if (!isPaused) {
-        playbackStartTime = audioContext.currentTime; // Reset start time only when playback resumes
-    }
+    source.onended = () => {
+        if (currentlyPlaying < chunkQueue.length - 1) {
+            chunkQueue[currentlyPlaying] = {
+                audioChunk : chunkQueue[currentlyPlaying].audioChunk,
+                spectogram : spectogramQueue
+            };
+            spectogramQueue = [];
+            currentlyPlaying++;
+            buffered++; 
+            visualizeSpectrogramChunk(chunkQueue[currentlyPlaying].audioChunk); 
+        } else {
+            console.log("Playback finished for all chunks");
+            isSpectrogramRunning = false; 
+        }
+    };
 
     const draw = () => {
         if (!isSpectrogramRunning) return;
 
         const data = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(data);
-        spectogramQueue.push(data);
-        if (spectogramQueue.length > maxQueueDuration) {
-            spectogramQueue.shift(); 
+        var dataContainer = {
+            data:data
         }
+        spectogramQueue.push(dataContainer);
         shiftLeft(data);
         currentX++;
         maxX++;
@@ -243,6 +257,60 @@ const visualizeSpectrogramChunk = (audio) => {
     draw();
 };
 
+function visualizeFromQueue(endIndex) {
+    if(buffered == 0){
+        return;
+    }
+    if(isRendering){
+        console.log("rendering already")
+        return
+    }
+    if(endIndex > buffered){
+        endIndex = buffered;
+    }
+    isRendering = true;
+    let width = spectrogramCanvas.width;
+    let numOfClips = width / 4;
+
+    let startIndex = endIndex - numOfClips;
+    if(startIndex < 0) {
+        startIndex = 0;
+        endIndex = numOfClips;
+    }
+    currentlyPlaying = endIndex;
+    console.log("startIndex:" + startIndex)
+    console.log("endIndex:" + endIndex)
+    spectrogramContext.clearRect(0,0,width, spectrogramCanvas.height);
+    let curPixel = 0;
+    for(let i = startIndex; i < endIndex; i++) {
+        let toDraw = chunkQueue[i].spectogram;
+        for(let j = 0; j < toDraw.length; j++){
+            let data = toDraw[j].data;
+            const sampleRate = audioContext.sampleRate;
+            const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
+            const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
+
+            for (let k = minIndex; k < maxIndex; k++) {
+                const value = data[k] / 255;
+        
+                if (value > 0) {
+                    const hue = Math.round(60 - (value * 60)); 
+                    const saturation = "100%"; 
+                    const lightness = `${30 + value * 50}%`;
+        
+                    spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
+                } else {
+                    spectrogramContext.fillStyle = "rgb(20, 0, 40)"; 
+                }
+
+                spectrogramContext.fillRect(curPixel, spectrogramCanvas.height - (k - minIndex), 1, 1);
+            }
+            curPixel++;
+        }
+    }
+    
+    isRendering = false;
+}
 
 const shiftLeft = (data) => {
     // console.log(data);
@@ -251,95 +319,39 @@ const shiftLeft = (data) => {
     spectrogramContext.putImageData(imageData, 0, 0);
 
     // Draw new frequency data on the right
-    const sampleRate = audioContext.sampleRate;
+    const sampleRate = 48000;
     const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
     const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
     const renderX = spectrogramCanvas.width - 1;
-
+    
     for (let i = minIndex; i < maxIndex; i++) {
         const value = data[i] / 255;
-        const hue = Math.round((value * 120) + 280) % 360;
-        const saturation = "100%";
-        const lightness = `${10 + 70 * value}%`;
-        spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
 
-        const y =
-            spectrogramCanvas.height -
-            ((i - minIndex) / (maxIndex - minIndex)) * spectrogramCanvas.height;
-        spectrogramContext.fillRect(renderX, y, 1, 1);
+        if (value > 0) {
+            const hue = Math.round(60 - (value * 60)); 
+            const saturation = "100%"; 
+            const lightness = `${30 + value * 50}%`;
+
+            spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
+        } else {
+            spectrogramContext.fillStyle = "rgb(20, 0, 40)"; 
+        }
+
+        spectrogramContext.fillRect(renderX, spectrogramCanvas.height - (i - minIndex), 1, 1);
     }
 };
-
-const shiftRight = (data) => {
-    // Shift the canvas to the right
-    const imageData = spectrogramContext.getImageData(0, 0, spectrogramCanvas.width - 1, spectrogramCanvas.height);
-    spectrogramContext.putImageData(imageData, 1, 0);
-
-    // Draw new frequency data on the left
-    const sampleRate = audioContext.sampleRate;
-    const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
-    const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
-    const renderX = 0;
-
-    // for (let i = minIndex; i < maxIndex; i++) {
-    //     const value = data[i] / 255;
-    //     const hue = Math.round((value * 120) + 280) % 360;
-    //     const saturation = "100%";
-    //     const lightness = `${10 + 70 * value}%`;
-    //     spectrogramContext.fillStyle = `hsl(${hue}, ${saturation}, ${lightness})`;
-
-    //     const y =
-    //         spectrogramCanvas.height -
-    //         ((i - minIndex) / (maxIndex - minIndex)) * spectrogramCanvas.height;
-    //     spectrogramContext.fillRect(renderX, y, 1, 1);
-    // }
-};
-
 
 const renderClipFromQueue = (offset) => {
-    console.log(offset)
-    if(isRendering){
-        console.log("already Rendering")
-        return;
-    }
-    isRendering = true;
-    const newIndex = currentX - offset;
-
-    if (newIndex - spectrogramCanvas.width < 0 || newIndex >= spectogramQueue.length) {
-        isRendering = false;
-        return;
-    }
-    
-    if (offset > 0) {
-        for(let i = currentX - 1; i >= newIndex; i--) {
-            const data = spectogramQueue[i - spectrogramCanvas.width];
-    
-            if (!data || !(data instanceof Uint8Array)) {
-                console.error("Invalid data at index:", newIndex);
-                isRendering = false;
-                return;
-            }
-            shiftRight(data);
-        }
-    } else if(offset < 0) {
-        for(let i = currentX + 1; i <= newIndex; i++) {
-            const data = spectogramQueue[newIndex];
-    
-            if (!data || !(data instanceof Uint8Array)) {
-                console.error("Invalid data at index:", newIndex);
-                isRendering = false;
-                return;
-            }
-            shiftLeft(data);
-        }
-    }
-
-    currentX = newIndex;
-    updateProgressBar(); 
-    updateTimeCounters();
-    
-    isRendering = false;
-    console.log("render complete");
+    // console.log("offset:"+offset)
+    // if(isRendering){
+    //     console.log("already Rendering")
+    //     return;
+    // }
+    // isRendering = true;
+    console.log("offset:" +offset)
+    const adjustedOffset = Math.floor(offset / 4) * 4;
+    console.log("adjustedOffset:"+ adjustedOffset)
+    visualizeFromQueue(currentlyPlaying - adjustedOffset);
 };
 
 const handleCanvasMouseDown = (event) => {
@@ -349,26 +361,29 @@ const handleCanvasMouseDown = (event) => {
     
     isDragging = true;
     dragStartX = event.clientX;
-    spectrogramCanvas.style.cursor = "grabbing"; 
+    spectrogramCanvas.style.cursor = "grabbing";
 };
 
 const handleCanvasMouseMove = (event) => {
-    if (isDragging && isPaused) {
+    if (isDragging && isPaused && !isRendering) {
         const deltaX = event.clientX - dragStartX;
 
         const offset = Math.round(deltaX / 1); 
 
         renderClipFromQueue(offset);
         dragStartX = event.clientX; 
-    } 
+    } else {
+        return;
+    }
 };
 
 const handleCanvasMouseUp = () => {
     if (isDragging) {
         isDragging = false;
-        spectrogramCanvas.style.cursor = "default"; 
+        spectrogramCanvas.style.cursor = "default";
     }
 };
+
   const attachCanvasDragging = () => {
     spectrogramCanvas.addEventListener("mousedown", handleCanvasMouseDown);
     spectrogramCanvas.addEventListener("mousemove", handleCanvasMouseMove);
@@ -387,6 +402,22 @@ const updateProgressBar = () => {
     progressBar.style.width = `${percentage}%`;
 };
 
+function calculateSpectrogramAspectRatio() {
+    // maxFrequency = parseInt(document.getElementById('maxFrequency').value);
+    // minFrequency = parseInt(document.getElementById('minFrequency').value);
+    // const segmentDuration = parseFloat(document.getElementById('segmentDuration').value);
+    // const audioDuration = audioChunkQueue.reduce((sum, buffer) => sum + buffer.duration, 0); // Calculate total duration from the queue
+
+    const sampleRate = 48000; // Default to 48000 Hz
+    const maxIndex = Math.floor(maxFrequency / (sampleRate / fftSize));
+    const minIndex = Math.floor(minFrequency / (sampleRate / fftSize));
+    const relevantBinCount = maxIndex - minIndex;
+
+    const segments = 256;
+    const aspectRatio = segments / relevantBinCount;
+    return aspectRatio;
+} 
+
 attachCanvasDragging();
 
 document.getElementById("pauseButton").addEventListener("click", pauseSpectrogram);
@@ -396,9 +427,12 @@ document.getElementById("startButton").addEventListener("click", startSpectrogra
 document.getElementById("stopButton").addEventListener("click", stopSpectrogram);
 
 window.addEventListener("resize", () => {
-  spectrogramCanvas.width = window.innerWidth;
-  progressBar.width = spectrogramCanvas.width
-  spectrogramCanvas.height = window.innerHeight / 2;
+  const adjustedWidth = Math.floor(window.innerWidth / 4) * 4;
+  spectrogramCanvas.width = adjustedWidth;
+  progressBar.width = adjustedWidth;
+  const aspectRatio = calculateSpectrogramAspectRatio();  
+  spectrogramCanvas.height = 256;
+  visualizeFromQueue(currentlyPlaying);
 });
 
 window.dispatchEvent(new Event("resize"));
