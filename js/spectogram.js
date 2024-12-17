@@ -128,7 +128,7 @@ const visualizeSpectrogramChunk = (audio) => {
     source.start();
 
     source.onended = () => {
-        if (currentlyPlaying < chunkQueue.length - 1) {
+        if (currentlyPlaying < chunkQueue.length - 1 && currentlyPlaying == buffered) {
             chunkQueue[currentlyPlaying] = {
                 audioChunk : chunkQueue[currentlyPlaying].audioChunk,
                 spectogram : spectogramQueue
@@ -137,6 +137,9 @@ const visualizeSpectrogramChunk = (audio) => {
             // visualizeFromQueue(currentlyPlaying);
             currentlyPlaying++;
             buffered++; 
+            visualizeSpectrogramChunk(chunkQueue[currentlyPlaying].audioChunk); 
+        } else if(currentlyPlaying < chunkQueue.length - 1 && currentlyPlaying < buffered) {
+            currentlyPlaying++;
             visualizeSpectrogramChunk(chunkQueue[currentlyPlaying].audioChunk); 
         } else {
             console.log("Playback finished for all chunks");
