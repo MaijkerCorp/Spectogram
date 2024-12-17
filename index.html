@@ -6,23 +6,35 @@
   </head>
   <body>
     <h1>10 second old Spectrogram</h1>
+    <!-- Buttons -->
     <div class="controls">
-        <button id="startButton">Start Spectrogram</button>
-        <button id="stopButton">Stop Spectrogram</button>
-        <button id="pauseButton">Pause</button>
-        <button id="resumeButton">Resume</button>
+      <button id="startButton">Start Spectrogram</button>
+      <button id="pauseButton">Pause</button>
+      <button id="resumeButton">Resume</button>
     </div>
-    <div style="display: flex; flex-direction: column; align-items: center;">
-        <canvas id="spectrogramCanvas"></canvas>
-        <div id="progressBarContainer">
-            <div id="progressBar"></div>
-        </div>
+
+    <!-- Input Controls -->
+    <div class="control-inputs">
+      <label>FFT Size: <input type="number" id="fftSize" value="1024" min="256" step="256" /></label>
+      <label>Min Frequency (Hz): <input type="number" id="minFreq" value="100" min="0" step="10" /></label>
+      <label>Max Frequency (Hz): <input type="number" id="maxFreq" value="10000" min="1000" step="100" /></label>
+      <label>Sample Rate (Hz): <input type="number" id="sampleRate" value="48000" min="1000" step="100" /></label>
     </div>
+
+    <!-- Canvas and Progress Bar -->
+    <div style="display: flex; flex-direction: column; align-items: center">
+      <canvas id="spectrogramCanvas"></canvas>
+      <div id="progressBarContainer">
+        <div id="progressBar" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- Stats -->
     <div class="stats">
-        <span id="realTime">Real-Time Playback: 0.0s</span>
-        <span id="bufferDuration">Buffer Duration: 0s</span>
-        <span id="currentTime"> | Current Time: 0s</span>
-    </div>     
+      <span id="realTime">Real-Time Playback: 0.0s</span>
+      <span id="bufferDuration">Buffer Duration: 0s</span>
+      <span id="currentTime">| Current Time: 0s</span>
+    </div> 
     
     <script src="./js/spectogram.js"></script>
     <script>
