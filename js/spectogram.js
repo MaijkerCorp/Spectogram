@@ -5,14 +5,11 @@ let source = null;
 let chunkQueue = [];
 let spectogramQueue = [];
 let animationFrameId = null;
-let realTimeCounterInterval = null;
 let fetchAudioInterval = null;
 let isSpectrogramRunning = false;
 let isPaused = false;
 let isDragging = false;
 let isRendering = false;
-let playbackStartTime = 0;
-let totalElapsedTime = 0;
 let buffered = 0;
 let currentlyPlaying = 0;
 let numOfClips = 0;
@@ -134,7 +131,6 @@ const visualizeSpectrogramChunk = (audio) => {
                 spectogram : spectogramQueue
             };
             spectogramQueue = [];
-            // visualizeFromQueue(currentlyPlaying);
             currentlyPlaying++;
             buffered++; 
             visualizeSpectrogramChunk(chunkQueue[currentlyPlaying].audioChunk); 
@@ -281,11 +277,6 @@ const stopSpectrogram = () => {
         clearInterval(fetchAudioInterval);
         fetchAudioInterval = null;
     }
-
-    if (realTimeCounterInterval) {
-        clearInterval(realTimeCounterInterval);
-        realTimeCounterInterval = null;
-    }
 };
 
 const pauseSpectrogram = () => {
@@ -296,13 +287,6 @@ const pauseSpectrogram = () => {
         cancelAnimationFrame(currentAnimationFrame);
         currentAnimationFrame = null;
     }
-
-    if (realTimeCounterInterval) {
-        clearInterval(realTimeCounterInterval);
-        realTimeCounterInterval = null;
-    }
-
-    totalElapsedTime += audioContext.currentTime - playbackStartTime;
 };
 
 const resumeSpectrogram = () => {
